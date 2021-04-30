@@ -1,0 +1,342 @@
+---
+title: "Market Basket Analysis"
+author: "Kostas Voulgaropoulos"
+date: "29/4/2021"
+output: github_document
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(readxl)
+library(knitr)
+library(ggplot2)
+library(lubridate)
+library(arules)
+library(arulesViz)
+#library(plyr)
+library(ggthemes)
+library(plotly)
+library(usethis)
+
+use_git_config(user.name = "Kostas Voul", user.email = "voulkon93@gmail.com")
+
+
+```
+
+# Overview
+
+The following report showcases a market basket analysis and its use to a retail store. Market basket analysis helps identify subtle connections among products and can be found extremely useful in product placement and marketing discount offerings.
+
+The data used for this certain example is public, donated in 2015 to the UC Irvine Machine Learning Repository and can be found [here](https://archive.ics.uci.edu/ml/datasets/online+retail).
+
+From the repository's description: *This is a transnational data set which contains all the transactions occurring between 01/12/2010 and 09/12/2011 for a UK-based and registered non-store online retail.The company mainly sells unique all-occasion gifts. Many customers of the company are wholesalers.*
+
+After a basic preprocessing our dataset looks like this:
+
+```{r cars, echo=FALSE}
+file <- "C:\\Users\\kvoul\\Desktop\\Projects\\Retail_\\Online Retail.xlsx"
+retail <- read_excel(file)
+
+retail <- retail[complete.cases(retail), ]
+
+retail <- retail %>% 
+  mutate(#Description = as.factor(Description),
+         Country = as.factor(Country),
+         Date = as.Date(InvoiceDate),
+         Time = format(InvoiceDate, "%H:%M:%S"))
+
+head(retail)
+
+```
+
+# Exploratory Data Analysis
+
+First, we need to explore a little bit our data so that we get a feeling of what to expect. In the EDA section, we seek to answer generic questions about our dataset.
+
+## How many different items do customers buy during each visit?
+
+In case most of the times our customers buy only one thing during their visit, a market basket analysis is not only difficult to perform (since associations exist in groups of products) but also without value.
+
+
+
+```{r echo = FALSE}
+
+temp <- retail %>% 
+  group_by(InvoiceNo) %>% 
+  summarise( Products = n_distinct(StockCode) )
+
+plot1 <- temp %>%
+  ggplot( aes(x = Products) ) + 
+  geom_area(stat = "bin", binwidth = 1, fill = "#a6b6c9") +
+  labs( title = "Products per Invoice", y = "Products per invoice" ) +
+  theme_minimal()
+  
+#plot1 %>% ggplotly()  
+
+```
+
+What we see from this graph is that:
+
+-The **most frequent** number of items per invoice is **1** (3,434 Invoices) or at least close to 1
+
+```{r echo = FALSE}
+
+
+temp$Products %>% table() %>% head(10)
+
+```
+
+-There are **extreme orders**, even an invoice with 541 (!) items
+
+```{r echo = FALSE}
+
+
+temp$Products %>% table() %>% tail(10)
+
+```
+
+Which makes sense, since the shop also **deals with wholesale**. 
+Wholesale buyers, especially those buying such a variety of products, may not be so representative of the retail scheme. They seek to maintain a stock thus their invoices **do not reflect their own preferences**. 
+But on the other hand, their purchases reflect their customer's desires. Especially if we focus on the volume of the products they buy. They must be conservative on the lower-selling products and bold on the higher-selling.
+
+
+
+Overall, there are plenty of invoices that contain more than one item, thus it is possible to conduct a market basket analysis.
+
+But the fact that 1 is the most frequent number, highlights the need for some extra analysis on those orders.
+
+
+## Best and Worst selling products (by both quantity and value) and how often are they purchased?
+
+Before we seek to answer these questions, we need to **exclude invoices that represent returns** of products. 
+If we omit this step, the worst selling products might just become the most frequently returned. 
+
+Such data would be valuable for analyzing returns (e.g. detecting defective products), but the scope of this current analysis is limited to sales.
+
+### Best Selling
+
+```{r echo = FALSE}
+
+temp <- retail %>%
+  mutate(Value = UnitPrice*Quantity) %>% 
+  filter( UnitPrice > 0) %>% filter(Quantity > 0) %>% filter(Value > 0 ) %>% 
+  group_by(Description) %>%
+  summarise( Quantity = sum(Quantity),
+             Value = sum(Value))
+
+
+value_green <- "#2a6e35"
+quant_blue <- "#3a5491"
+
+
+## Top 5 - Worst 5 to get a feeling of the numbers ###
+
+plot2a <- 
+  temp %>% 
+    arrange(desc(Quantity)) %>% 
+    head(10) %>% #top_n(x = 10, wt = Quantity) %>%
+    ggplot(aes( x = reorder(Description, Quantity), y = Quantity )) + 
+    geom_bar(stat = "identity",width = 0.4, fill = quant_blue  ) + 
+    labs(title = "Best Selling Products by Quantity", x = "", y = "Quantity") +
+    coord_flip() +
+    theme_minimal()
+
+
+style(plot2a, hoverinfo = "x")
+
+
+plot2b <- 
+  temp %>% 
+    arrange(desc(Value)) %>% 
+    head(10) %>% #top_n(x = 10, wt = Quantity) %>%
+    ggplot(aes( x = reorder(Description, Value), y = Value )) + 
+    geom_bar(stat = "identity",width = 0.4, fill = value_green  ) + 
+    labs(title = "Best Selling Products by Value", x = "", y = "Value") +
+    coord_flip() +
+    theme_minimal()
+
+style(plot2b, hoverinfo = "x")
+
+
+```
+
+
+### Worst Selling
+
+```{r echo = FALSE}
+
+plot2c <- 
+  temp %>% 
+    arrange((Quantity)) %>% 
+    head(10) %>% #top_n(x = 10, wt = Quantity) %>%
+    ggplot(aes( x = reorder(Description, -Quantity), y = Quantity )) + 
+    geom_bar(stat = "identity",width = 0.4, fill = quant_blue ) + 
+    labs(title = "Worst Selling Products by Quantity", x = "", y = "Quantity") +
+    coord_flip() +
+    theme_minimal()
+
+style(plot2c, hoverinfo = "x")
+
+```
+
+All Bottom 10 Products have only **sold one piece** over a period of years .
+
+How many products have this fate?
+
+```{r echo = FALSE}
+
+
+temp %>% filter(Quantity == 1) %>% nrow()
+
+
+
+
+```
+
+59 distinct products have moved only once! 
+Pretty useful information, especially if we seek to optimize workload exercise.
+
+So, excluding all those laggers:
+
+```{r}
+plot2c <- 
+  temp %>%  
+    arrange((Quantity)) %>% 
+    filter(Quantity != 1) %>%
+    head(10) %>% #top_n(x = 10, wt = Quantity) %>%
+    ggplot(aes( x = reorder(Description, -Quantity), y = Quantity )) + 
+    geom_bar(stat = "identity",width = 0.4, fill = quant_blue ) + 
+    labs(title = "Worst Selling Products by Quantity", x = "", y = "Quantity") +
+    coord_flip() +
+    theme_minimal()
+
+style(plot2c, hoverinfo = "x")
+
+```
+
+Now we're stuck in the neighborhood of 2 moves over the course of those years.
+
+Perhaps a density plot could show us what to expect in the aforementioned neighborhood of low selling products:
+
+```{r}
+
+
+plot2e <- temp %>%
+  filter(Quantity <600) %>%
+
+  ggplot(aes(x = Quantity)) +
+  geom_histogram( binwidth = 1, fill =  "#3a8491")+
+  labs(title = "Histogram of Product Codes per Pieces Sold", 
+       subtitle = "Products sold more than 600 pieces excluded", 
+       x = "Products Sold",
+       y = "Number of Product Codes") + 
+  theme_minimal() 
+  
+plotly::ggplotly(plot2e)
+
+
+
+```
+
+And bingo! There are way too many slow moving products. 
+59 distinct codes have sold only 1 piece, 56 codes sold 2 pieces, and the list goes on and on.
+
+Unfortunately, with such measures, looking at the 10 lowest selling products is of no value, since the low selling are way more than 10. 
+
+Let's now look at the worst value bringers:
+
+
+```{r echo = FALSE}
+
+
+plot2d <- 
+  temp %>% 
+    arrange((Value)) %>% 
+    head(10) %>% #top_n(x = 10, wt = Quantity) %>%
+    ggplot(aes( x = reorder(Description, -Value), y = Value )) + 
+    geom_bar(stat = "identity",width = 0.4, fill = "#ad343c" ) + 
+    labs(title = "Worst Selling Products by Value", x = "", y = "Value") +
+    coord_flip() +
+    theme_minimal()
+
+style(plot2d, hoverinfo = "x")
+
+
+```
+
+There are products that have generated less than 1 pound of revenue over years. Perhaps a retailer might gain insights from that.
+
+
+Though it might not be of obvious use, knowing the best and worst sellers can be effectively combined with a market basket analysis and affect the marketing strategy of each retailer. 
+
+For example, a well performing product might prove associated with both another well and a poorly performing one. 
+The retailer might decide to connect it with the poorly performing in order to boost its sales or totally abandon the hopeless poor performer and target the boosting of the two well performing products by combining them.
+
+One way or another, the overall performance of a product is useful as a context in making decisions from a market basket analysis.
+
+### Products of Highest and Lowest Effort
+
+Expanding the value of context, a retailer will surely find useful knowing which products generate revenue without needing much warehouse circulation (and thus effort) and which don't.
+
+That's why a look at the average revenue per product would be insightful.
+
+```{r echo = FALSE}
+
+
+temp <- temp %>% 
+  filter(Quantity != 0) %>%
+  mutate( Average_Value = Value / Quantity )
+
+
+plot3a <- 
+  temp %>% 
+    arrange(desc(Average_Value)) %>% 
+    head(10) %>% #top_n(x = 10, wt = Quantity) %>%
+    ggplot(aes( x = reorder(Description, Average_Value), y = Average_Value )) + 
+  
+    geom_point(color="#1e5c2b", fill= "#428052" , alpha=1, shape=21, stroke=2 ) + 
+    
+    geom_segment(aes(x=reorder(Description, Average_Value), 
+                     xend=reorder(Description, Average_Value), y=0, yend=Average_Value) , size = 1.2, ) + 
+  
+    labs(title = "Highest Values per Product", x = "", y = "Value_per_Product") +
+  
+    coord_flip() +
+    
+    theme_minimal()
+
+style(plot3a, hoverinfo = "x")
+
+plot3b <- 
+  temp %>% 
+  filter(Average_Value>0) %>%
+    arrange((Average_Value)) %>% 
+  
+    head(10) %>% #top_n(x = 10, wt = Quantity) %>%
+    ggplot(aes( x = reorder(Description, -Average_Value), y = Average_Value )) + 
+  
+    geom_point(color="#a12d10", alpha=2, shape=21, stroke=2 ) + 
+    
+    geom_segment(aes(x=reorder(Description, Average_Value), 
+                     xend=reorder(Description, Average_Value), y=0, yend=Average_Value) , size = 1.2, ) + 
+  
+    labs(title = "Lowest Values per Product", x = "", y = "Value_per_Product") +
+  
+    coord_flip() +
+    
+    theme_minimal()
+
+style(plot3b, hoverinfo = "x")
+
+
+
+```
+
+
+
+# Returns
+
+
