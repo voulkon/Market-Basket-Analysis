@@ -426,7 +426,7 @@ association.rules <- apriori(tr, parameter = list(supp = support,
                                                   maxlen = maxlength))
 
 #summary(association.rules)
-inspect(association.rules)
+inspect(association.rules) #%>% knitr::kable()
 
 ```
 And Voila!
@@ -457,7 +457,7 @@ We can see for example that:
 
 # Conclusion
 
-We've come to analyze our dataset and, apart from the insights gained from the Exploratory Data Analysis with the graphs, we managed to extract rules useful for marketing strategy and product placement. 
+We've come to analyze our dataset and, apart from the insights gained from the Exploratory Data Analysis with the graphs, we managed to extract rules useful for **marketing strategy** and **product placement**. 
 
 Such analyses are **sensitive** to each user's **preferences** and **goals**. Our tuning parameters (minimum support and confidence) were more or less picked by chance. 
 
