@@ -20,6 +20,8 @@ library(arulesViz)
 library(ggthemes)
 library(plotly)
 library(usethis)
+library(forecast)
+library(timetk)
 
 use_git_config(user.name = "Kostas Voul", user.email = "voulkon93@gmail.com")
 
@@ -455,6 +457,162 @@ We can see for example that:
 
 5. There have been `r inspect(association.rules[1])[[8]]` invoices that contain both `r itms[1]` and `r itms[2]`
 
+# Time Series Decomposition
+
+Before we sum up, let's take a look at the value of **sales as a time series.**
+
+That means to disregard all features of our dataset and concentrate on one numeric of our choice (Value of Sales here) and analyze it through time.
+
+Time series decomposition is a technique that **decomposes a time series of values** (e.g. Sales of Air Tickets, Weather Data, etc.) into:
+
+1. Seasonal Fluctuation
+
+2. Trend
+
+3. Random Noise
+
+That decomposing allows us to **spot the trend** (that's the main point of interest) and distinguish whether it is ascending or descending.
+By figuring out the trend's momentum, we can project that to the future and gain an overall view of the future (that is solely based on the past, no external factor is taken into account).
+
+Unfortunately, for this technique to work properly, we need:
+1. our data to cover a large timespan
+2. a seasonality to be present
+
+A nice example of a working case is the [Airline Passengers](http://rstudio-pubs-static.s3.amazonaws.com/311446_08b00d63cc794e158b1f4763eb70d43a.html). 
+
+This certain dataset contains more than **10 years** of observations and **trend and seasonality** are so prevalent that they are obvious even to the naked eye. 
+At first glance, it seems that there is a **yearly pattern** with high summer and low winter numbers that is **repeated in higher values** every year.
+
+Our data contain a little more than a year of observation, thus it would be nearly **impossible to capture yearly fluctuations** (for example high Christmas sales, low sales while people are on vacation, Black Friday frenzy, etc.). 
+
+Missing the yearly seasonality will lead to a **wrong detection of trend** and a wrong prediction as a result.
+
+But we can explore saled thoughout time and look for insights.
+
+First, for each day separately:
+
+```{r echo = FALSE}
+
+daily_sales <- retail %>% 
+  
+  mutate(Value = UnitPrice * Quantity) %>%
+  
+  group_by(Date) %>%
+  
+  summarize(Daily_Value = sum(Value))
+
+
+daily_sales_plot <- daily_sales %>% ggplot(aes(x = Date, y = Daily_Value)) +
+  geom_line(color = "#1aab6c") + 
+  labs(title = "Daily Sales by Value") +
+  theme_minimal()
+
+
+ggplotly(daily_sales_plot)
+
+
+
+```
+
+We can spot a mildly **ascending trend**, but the daily values are way too many and the line becomes too **sharp for the human eye**.
+
+Perhaps a weekly average would work better:
+
+```{r echo = FALSE}
+
+daily_sales <- 
+daily_sales %>% cbind(
+daily_sales$Date %>% timetk::tk_get_timeseries_signature() %>% select(-index))
+
+
+
+weekly_sales <- daily_sales %>%
+  
+  mutate(Week_ = paste0( as.character(year),  "_",   ifelse( nchar(as.character(week)) == 1, paste0("0",as.character(week)), as.character(week)  ) )  ) %>%
+  
+  group_by(Week_) %>%
+  
+  summarize(Weekly_Value = sum(Daily_Value))
+
+
+weekly_sales_plot <- weekly_sales %>% 
+  
+  ggplot(aes(x = Week_, y = Weekly_Value)) +
+  
+  geom_point(color = "#50419c") + 
+  
+  labs(title = "Weekly Sales by Value") +
+  
+  theme_minimal() + 
+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+ggplotly(weekly_sales_plot)
+
+
+
+```
+And now the trend becomes more obvious. Higher values happen in the upper right quartile of the graph.
+One could consider it proof of an ascending trend. 
+But that could also be misleading.
+
+If we combine the high values of late 2011 with the highs of late 2010, we could also attribute the rise in the christmas holidays.
+Had we had more data, we would be able to distinguish whether this raise happens due to Christmas or due to a rising trend (because we would compare same days among years).
+
+But apart from the yearly seasonal fluctuations, some weekly fluctuation might also be present in many datasets.
+A peek into the sales of each weekday would enlighten us:
+
+```{r weekly sales ,echo = FALSE}
+
+weekday_plot <- daily_sales %>% group_by(wday.lbl) %>%
+  summarize(Weekday_Value = sum(Daily_Value)) %>%
+  ggplot(aes(x = wday.lbl, y = Weekday_Value)) +
+  geom_point(color = "#1aab6c", size = 4) +
+  
+      
+  geom_segment(aes(x=wday.lbl, 
+                    xend=wday.lbl, y=0, yend=Weekday_Value) , size = 1.2, ) + 
+  
+  geom_line() +
+
+  labs(title = "Sales by Weekday") + 
+  theme_minimal()
+  
+
+style(weekday_plot, hoverinfo = "y")
+
+```
+
+Apart from the fact that there is **no Saturday sale** in the whole dataset, there seems to be **a pick in Thursdays** and an obvious **fall in Sundays**.
+
+The fluctuation shown in the above diagram is a sign that our dataset's sales probably contain weekly seasonality.
+
+We could attempt a time series decomposition with a weekly seasonality, but still the results would not be that much reliable.
+Plus, values in Saturday will be imputed with 0.
+
+Such a decomposition would look like:
+
+```{r echo = FALSE}
+
+ts_df <- as.data.frame.Date(seq(min(daily_sales$Date), max(daily_sales$Date), by = "day"))
+colnames(ts_df) <- "Date"
+
+ts_df <- ts_df %>% left_join( select(daily_sales, c(Date, Daily_Value) ), by = "Date" )
+
+ts_df[is.na(ts_df$Daily_Value),2] <- 0
+
+as_ts <- ts(ts_df$Daily_Value, start = min(ts_df$Date), end =  max(ts_df$Date), frequency = 53 )
+
+decomposed <- decompose(as_ts, "multiplicative")
+
+plot(decomposed)
+
+```
+
+Which appears **very bad** since **we only have one year of data**. A decomposition is obviously of no use here.
+
 # Conclusion
 
 We've come to analyze our dataset and, apart from the insights gained from the Exploratory Data Analysis with the graphs, we managed to extract rules useful for **marketing strategy** and **product placement**. 
@@ -466,4 +624,7 @@ On top of it, the few (with such strict criteria) rules that we unearthed, we di
 For example, one retailer may seek to **minimize their warehouse cost**, another one to **maximize revenue**, another to **optimize orders' volume and frequency**,  another to **attract new customers**, etc. What is useful to the one, might be meaningless for the other. 
 
 Rules exist and each recipient **utilizes** them in a **manner** that **suits them best**.
+
+As for the time series decomposition, **observations do not cover a large timespan** and thus a decomposition would not be so valuable.
+
 
