@@ -23,7 +23,7 @@ library(usethis)
 library(forecast)
 library(timetk)
 
-use_git_config(user.name = "Kostas Voul", user.email = "voulkon93@gmail.com")
+#use_git_config(user.name = "Kostas Voul", user.email = "voulkon93@gmail.com")
 
 is_interactive <- FALSE
 
