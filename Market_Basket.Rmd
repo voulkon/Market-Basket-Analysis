@@ -2,8 +2,10 @@
 title: "Market Basket Analysis"
 author: "Kostas Voulgaropoulos"
 date: "3/5/2021"
-output: pdf_document
-always_allow_html: true
+output:
+  html_document:
+    df_print: paged
+always_allow_html: yes
 ---
 
 ```{r setup, include=FALSE}
@@ -25,13 +27,15 @@ library(timetk)
 
 #use_git_config(user.name = "Kostas Voul", user.email = "voulkon93@gmail.com")
 
-is_interactive <- FALSE
+is_interactive <- TRUE
 
 ```
 
 # Overview
 
-The following report showcases a market basket analysis and its use to a retail store. Market basket analysis helps identify subtle connections among products and can be found extremely useful in product placement and marketing discount offerings.
+The following report showcases a market basket analysis and its use to a retail store. 
+
+Market basket analyses help identify subtle connections among products and can be found extremely useful in **product placement** and marketing **discount offerings**.
 
 The data used for this certain example is public, donated in 2015 to the UC Irvine Machine Learning Repository and can be found [here](https://archive.ics.uci.edu/ml/datasets/online+retail).
 
@@ -40,8 +44,25 @@ From the repository's description: *This is a transnational data set which conta
 After a basic preprocessing our dataset looks like this:
 
 ```{r cars, echo=FALSE}
-file <- "C:\\Users\\kvoul\\Desktop\\Projects\\Retail_\\Online Retail.xlsx"
-retail <- read_excel(file)
+
+#To avoid downloading while developing it
+on_development <- TRUE
+#To render the script reproducible without cloning the whole repo, we set it to FALSE
+
+if(on_development){
+  
+  retail <- readxl::read_excel("Online Retail.xlsx")
+  
+  #Otherwise, download it
+  }else{
+  
+    temp <- tempfile(fileext = ".xlsx")
+    dataURL <- "https://archive.ics.uci.edu/ml/machine-learning-databases/00352/Online%20Retail.xlsx"
+    download.file(dataURL, destfile=temp, mode='wb')
+
+    retail <- readxl::read_excel(temp)
+
+}
 
 retail <- retail[complete.cases(retail), ]
 
@@ -55,14 +76,18 @@ head(retail)
 
 ```
 
+
 # Exploratory Data Analysis
 
-First, we need to explore a little bit our data so that we get a feeling of what to expect. In the EDA section, we seek to answer generic questions about our dataset.
+First, we need to explore a little bit our data so that we get a feeling of what to expect. 
+
+In the EDA section, we seek to answer generic questions about our dataset.
 
 ## How many different items do customers buy during each visit?
 
-In case most of the times our customers buy only one thing during their visit, a market basket analysis is not only difficult to perform (since associations exist in **groups** of products) but also **without much value**.
+In case most of the times our customers buy only one thing during their visit, a market basket analysis is not only difficult to perform (since associations exist in **groups** of products) but also **without much value**, since they **don't combine** products.
 
+So, what about our customers?
 
 ```{r echo = FALSE}
 
@@ -92,24 +117,40 @@ What we see from this graph is that:
 
 ```{r echo = FALSE}
 
-
-table_of_products %>% head(10)
-
-
+table_of_products %>% 
+  
+  head(10) %>% 
+  
+  as.data.frame() %>% 
+  
+  rename( "Different Products in Order" = ".", "Number of Orders" = "Freq")
+  
+  
 ```
 
 -There are **extreme orders**, even an invoice with 541 (!) items
 
 ```{r echo = FALSE}
 
-
-table_of_products %>% tail(10)
+table_of_products %>% 
+  
+  tail(10) %>% 
+  
+  as.data.frame() %>% 
+  
+  rename( "Different Products in Order" = ".", "Number of Orders" = "Freq")
 
 ```
 
 Which makes sense, since the shop also **deals with wholesale**. 
-Wholesale buyers, especially those buying such a variety of products, may not be so representative of the retail scheme. They seek to **maintain a stock**, thus their invoices **do not reflect their own preferences**. 
-But on the other hand, their purchases **reflect** their **customers' desires**, especially if we focus on the volume of the products they buy. They must be conservative on the lower-selling products and bold on the higher-selling.
+
+Wholesale buyers, especially those buying such a variety of products, may not be so representative of the retail scheme.
+
+They seek to **maintain a stock**, thus their invoices **do not reflect their own preferences**. 
+
+But on the other hand, their purchases **reflect** their **customers' desires**, especially if we focus on the volume of the products they buy. 
+
+They must be conservative on the lower-selling products and bold on the higher-selling.
 
 Overall, there are plenty of invoices that contain more than one item, thus it is **possible** to conduct a **market basket analysis**.
 
@@ -181,6 +222,7 @@ plot2c <-
     ggplot(aes( x = reorder(Description, -Quantity), y = Quantity )) + 
     geom_bar(stat = "identity",width = 0.4, fill = quant_blue ) + 
     labs(title = "Worst Selling Products by Quantity", x = "", y = "Quantity") +
+    scale_y_continuous(breaks = c(0,1)) +
     coord_flip() +
     theme_minimal()
 
@@ -195,15 +237,17 @@ How many products have this fate?
 ```{r echo = FALSE}
 
 
-temp %>% filter(Quantity == 1) %>% nrow()
+temp %>% filter(Quantity == 1) %>% nrow() %>% cat("Products with only 1 Piece Sold!")
+
 
 
 ```
 
 59 distinct products have moved only once! 
+
 Pretty useful information, especially if we seek to optimize workload exercise.
 
-So, excluding all those laggers, the above graph might look like:
+So, excluding all those lagers, the above graph might look like:
 
 ```{r echo = FALSE}
 plot2c <- 
@@ -214,6 +258,7 @@ plot2c <-
     ggplot(aes( x = reorder(Description, -Quantity), y = Quantity )) + 
     geom_bar(stat = "identity",width = 0.4, fill = quant_blue ) + 
     labs(title = "Worst Selling Products by Quantity", x = "", y = "Quantity") +
+    scale_y_continuous(breaks = c(0,1,2)) +
     coord_flip() +
     theme_minimal()
 
@@ -253,7 +298,7 @@ And bingo! There are way too **many slow moving** products.
 
 Unfortunately, with such measures, looking at the **10 lowest selling products** is of **no value**, since the low selling are way more than 10. 
 
-Let's now look at the worst value bringers:
+Let's now look at the **worst value bringers**:
 
 
 ```{r echo = FALSE}
@@ -518,6 +563,7 @@ We can spot a mildly **ascending trend**, but the daily values are way too many 
 
 Perhaps a weekly average would work better:
 
+
 ```{r echo = FALSE}
 
 daily_sales <- 
@@ -554,6 +600,8 @@ if(is_interactive){ggplotly(weekly_sales_plot)}else{weekly_sales_plot}
 
 
 ```
+
+
 And now the trend becomes more obvious. Higher values happen in the upper right quartile of the graph.
 One could consider it proof of an ascending trend. 
 But that could also be misleading.
